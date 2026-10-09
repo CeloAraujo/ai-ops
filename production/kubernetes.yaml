@@ -1,0 +1,158 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ai-ops
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ai-ops-read
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ai-ops-read
+subjects:
+  - kind: ServiceAccount
+    name: ai-ops
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ai-ops-read
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-ops
+  labels:
+    app: ai-ops
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: ai-ops
+  template:
+    metadata:
+      labels:
+        app: ai-ops
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "8080"
+    spec:
+      serviceAccountName: ai-ops
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: ai-ops
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ai-ops
+          image: ai-ops:production
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: AIOPS_APP_NAME
+              value: my-application
+            - name: KUBERNETES_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: AIOPS_MAX_CONCURRENT_ASKS
+              value: "4"
+            - name: PROMETHEUS_URL
+              value: http://prometheus-operated.monitoring.svc:9090
+            - name: PROMETHEUS_QUERIES
+              value: '{"cpu_usage":"sum(rate(container_cpu_usage_seconds_total{namespace=\"{namespace}\",container!=\"\"}[5m]))","pod_restarts":"sum(kube_pod_container_status_restarts_total{namespace=\"{namespace}\"})"}'
+            - name: GROQ_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ai-ops-secrets
+                  key: groq-api-key
+            - name: AIOPS_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ai-ops-secrets
+                  key: api-token
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 2
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            timeoutSeconds: 10
+            periodSeconds: 30
+            failureThreshold: 3
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-ops
+  labels:
+    app: ai-ops
+spec:
+  selector:
+    app: ai-ops
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ai-ops
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: ai-ops

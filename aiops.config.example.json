@@ -1,0 +1,17 @@
+{
+  "service": "minha-aplicacao",
+  "checks": [
+    {
+      "name": "API local",
+      "type": "http",
+      "url": "https://api.exemplo.com/health",
+      "expected_status": [200, 299]
+    },
+    {
+      "name": "Versão do Python",
+      "type": "command",
+      "command": ["python", "--version"],
+      "expected_exit_code": 0
+    }
+  ]
+}

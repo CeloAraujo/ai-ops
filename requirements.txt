@@ -1,0 +1,12 @@
+# Dependências das extensões e laboratórios (o núcleo aiops.py usa apenas a biblioteca padrão).
+crewai==1.14.4
+crewai[tools]==1.14.4
+langchain-groq
+python-dotenv
+streamlit
+checkov<3.0.0
+kubernetes
+pandas
+numpy
+litellm
+boto3

@@ -1,0 +1,11 @@
+{
+  "service": "demonstracao-local",
+  "checks": [
+    {
+      "name": "Python instalado",
+      "type": "command",
+      "command": ["python", "--version"],
+      "expected_exit_code": 0
+    }
+  ]
+}
